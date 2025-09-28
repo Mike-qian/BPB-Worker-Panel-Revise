@@ -1,6 +1,12 @@
 <h1 align="center">BPB Panel</h1>
 
-添加Legacy订阅修复3.4.9后不支持常规客户端的base64订阅方式
+### 添加Legacy订阅修复3.4.9后不支持常规客户端的base64订阅方式
+
+<p align="center">
+  <img src="docs/assets/images/Legacy.jpeg">
+</p>
+<br>
+
 ### 🌏 Readme in [Farsi](README_fa.md)
 
 <p align="center">
