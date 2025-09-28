@@ -1,8 +1,8 @@
 import { Authenticate, generateJWTToken, resetPassword } from "#auth";
 import { getClashNormalConfig, getClashWarpConfig } from "#configs/clash";
-import { extractWireguardParams } from "#configs/utils";
+import { extractWireguardParams, getConfigAddresses, generateRemark } from "#configs/utils";
 import { getSingBoxCustomConfig, getSingBoxWarpConfig } from "#configs/sing-box";
-import { getXrayCustomConfigs, getXrayWarpConfigs } from "#configs/xray";
+import { getXrayCustomConfigs, getXrayWarpConfigs, buildXrayVLOutbound, buildXrayTROutbound } from "#configs/xray";
 import { getDataset, updateDataset } from "#kv";
 import JSZip from "jszip";
 import { fetchWarpConfigs } from "#protocols/warp";
@@ -11,6 +11,81 @@ import { VlOverWSHandler } from "#protocols/websocket/vless";
 import { TrOverWSHandler } from "#protocols/websocket/trojan";
 export let settings = {}
 
+// 实现旧客户订阅链接功能 - 将 trojan:// 和 vless:// 节点链接合并
+async function getLegacySubscriptionConfig(env) {
+    const Addresses = await getConfigAddresses(settings.cleanIPs, settings.VLTRenableIPv6, settings.customCdnAddrs, false);
+    const totalPorts = settings.ports;
+    
+    let protocols = [];
+    if (settings.VLConfigs) protocols.push(atob('VkxFU1M='));
+    if (settings.TRConfigs) protocols.push(atob('VHJvamFu'));
+    
+    let nodeLinks = [];
+    
+    for (const protocol of protocols) {
+        let protocolIndex = 1;
+        for (const port of totalPorts) {
+            for (const addr of Addresses) {
+                const isCustomAddr = settings.customCdnAddrs.includes(addr);
+                const configType = isCustomAddr ? 'C' : '';
+                const sni = isCustomAddr ? settings.customCdnSni : randomUpperCase(httpConfig.hostName);
+                const host = isCustomAddr ? settings.customCdnHost : httpConfig.hostName;
+                const remark = generateRemark(protocolIndex, port, addr, settings.cleanIPs, protocol, configType);
+                
+                let nodeLink = '';
+                if (protocol === atob('VkxFU1M=')) {
+                    // 生成 vless:// 链接
+                    const uuid = globalConfig.userID;
+                    const wsPath = generateWsPath('vl');
+                    nodeLink = `vless://${uuid}@${addr}:${port}?encryption=none&security=tls&sni=${encodeURIComponent(sni)}&type=ws&host=${encodeURIComponent(host)}&path=${encodeURIComponent(wsPath)}#${encodeURIComponent(remark)}`;
+                } else if (protocol === atob('VHJvamFu')) {
+                    // 生成 trojan:// 链接
+                    const password = globalConfig.TrPass;
+                    const wsPath = generateWsPath('tr');
+                    nodeLink = `trojan://${password}@${addr}:${port}?security=tls&sni=${encodeURIComponent(sni)}&type=ws&host=${encodeURIComponent(host)}&path=${encodeURIComponent(wsPath)}#${encodeURIComponent(remark)}`;
+                }
+                
+                if (nodeLink) {
+                    nodeLinks.push(nodeLink);
+                }
+                
+                protocolIndex++;
+            }
+        }
+    }
+    
+    // 将所有节点链接用换行符合并
+    const subscriptionContent = nodeLinks.join('\n');
+    
+    // 对内容进行 base64 编码
+    const base64Content = btoa(unescape(encodeURIComponent(subscriptionContent)));
+    
+    return new Response(base64Content, {
+        status: 200,
+        headers: {
+            'Content-Type': 'text/plain;charset=utf-8',
+            'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+            'CDN-Cache-Control': 'no-store'
+        }
+    });
+}
+
+// 辅助函数 - 生成 WebSocket 路径
+function generateWsPath(prefix) {
+    const randomStr = Math.random().toString(36).substring(2, 8);
+    return `/${prefix}-${randomStr}`;
+}
+
+// 辅助函数 - 随机大写
+function randomUpperCase(str) {
+    return str.split('').map(char => 
+        Math.random() > 0.5 ? char.toUpperCase() : char
+    ).join('');
+}
+
+// 其余原有函数保持不变
+
+// 处理WebSocket连接
 export async function handleWebsocket(request) {
     const encodedPathConfig = globalConfig.pathName.replace("/", "") || '';
 
@@ -37,8 +112,8 @@ export async function handleWebsocket(request) {
     }
 }
 
+// 处理面板请求
 export async function handlePanel(request, env) {
-
     switch (globalConfig.pathName) {
         case '/panel':
             return await renderPanel(request, env);
@@ -61,6 +136,7 @@ export async function handlePanel(request, env) {
     }
 }
 
+// 处理错误
 export async function handleError(error) {
     const html = hexToString(__ERROR_HTML_CONTENT__).replace('__ERROR_MESSAGE__', error.message);
 
@@ -70,6 +146,7 @@ export async function handleError(error) {
     });
 }
 
+// 处理登录请求
 export async function handleLogin(request, env) {
     if (globalConfig.pathName === '/login') {
         return await renderLogin(request, env);
@@ -82,6 +159,7 @@ export async function handleLogin(request, env) {
     return await fallback(request);
 }
 
+// 处理订阅请求
 export async function handleSubscriptions(request, env) {
     const dataset = await getDataset(request, env);
     settings = dataset.settings;
@@ -133,6 +211,10 @@ export async function handleSubscriptions(request, env) {
                 default:
                     break;
             }
+
+        // 添加对旧客户订阅链接的支持
+        case `/sub/legacy/${subPath}`:
+            return await getLegacySubscriptionConfig(env);
 
         default:
             return await fallback(request);
