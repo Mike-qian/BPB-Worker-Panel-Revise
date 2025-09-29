@@ -183,9 +183,14 @@ async function generateVlessNodes(env) {
             const host = isDomain(address) ? address : httpConfig.hostName;
             const sni = settings.customCdnSni || host;
             const wsPath = generateWsPath('vl');
+            
+            // 检查是否是带方括号的IPv6地址
+            const isIPv6WithBrackets = /^\[.*\]$/.test(address);
+            // 如果是IPv6地址，保留方括号；否则移除方括号（如果有的话）
+            const formattedAddress = isIPv6WithBrackets ? address : address.replace(/\[|\]/g, '');
 
             // 构建vless链接
-            const vlessUrl = `vless://${globalConfig.userID}@${address.replace(/\[|\]/g, '')}:${port}?encryption=none&security=tls&sni=${sni}&type=ws&host=${host}&path=${encodeURIComponent(wsPath)}#BPB-Vless-${index + 1}`;
+            const vlessUrl = `vless://${globalConfig.userID}@${formattedAddress}:${port}?encryption=none&security=tls&sni=${sni}&type=ws&host=${host}&path=${encodeURIComponent(wsPath)}#BPB-Vless-${index + 1}`;
             nodes.push(vlessUrl);
         });
     });
@@ -203,9 +208,14 @@ async function generateTrojanNodes(env) {
             const host = isDomain(address) ? address : httpConfig.hostName;
             const sni = settings.customCdnSni || host;
             const wsPath = generateWsPath('tr');
+            
+            // 检查是否是带方括号的IPv6地址
+            const isIPv6WithBrackets = /^\[.*\]$/.test(address);
+            // 如果是IPv6地址，保留方括号；否则移除方括号（如果有的话）
+            const formattedAddress = isIPv6WithBrackets ? address : address.replace(/\[|\]/g, '');
 
             // 构建trojan链接
-            const trojanUrl = `trojan://${globalConfig.TrPass}@${address.replace(/\[|\]/g, '')}:${port}?security=tls&sni=${sni}&type=ws&host=${host}&path=${encodeURIComponent(wsPath)}#BPB-Trojan-${index + 1}`;
+            const trojanUrl = `trojan://${globalConfig.TrPass}@${formattedAddress}:${port}?security=tls&sni=${sni}&type=ws&host=${host}&path=${encodeURIComponent(wsPath)}#BPB-Trojan-${index + 1}`;
             nodes.push(trojanUrl);
         });
     });
