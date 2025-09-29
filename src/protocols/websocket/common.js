@@ -2,8 +2,11 @@ import { connect } from 'cloudflare:sockets';
 import { isIPv4, parseHostPort, resolveDNS } from '#configs/utils';
 import { wsConfig } from '#common/init';
 
+// WebSocket连接状态常量
+export const WS_READY_STATE_CONNECTING = 0;
 export const WS_READY_STATE_OPEN = 1;
-const WS_READY_STATE_CLOSING = 2;
+export const WS_READY_STATE_CLOSING = 2;
+export const WS_READY_STATE_CLOSED = 3;
 
 export async function handleTCPOutBound(
     remoteSocket,
@@ -134,60 +137,101 @@ async function remoteSocketToWS(remoteSocket, webSocket, VLResponseHeader, retry
 
 export function makeReadableWebSocketStream(webSocketServer, earlyDataHeader, log) {
     let readableStreamCancel = false;
+    let isPulling = false;
+    let highWaterMark = 16; // 高水位线，控制背压
+    let buffer = [];
+    
     const stream = new ReadableStream({
         start(controller) {
+            // 设置流的高水位线
+            highWaterMark = controller.desiredSize || 16;
+            
             webSocketServer.addEventListener("message", (event) => {
-
                 if (readableStreamCancel) {
                     return;
                 }
 
                 const message = event.data;
-                controller.enqueue(message);
+                
+                // 如果当前不在pull状态且缓冲区未满，则尝试立即入队
+                if (!isPulling && buffer.length < highWaterMark) {
+                    try {
+                        controller.enqueue(message);
+                    } catch (error) {
+                        console.error('Error enqueuing message:', error);
+                        // 如果入队失败，将消息添加到缓冲区
+                        buffer.push(message);
+                    }
+                } else {
+                    // 否则将消息添加到缓冲区
+                    buffer.push(message);
+                }
             });
 
-            // The event means that the client closed the client -> server stream.
-            // However, the server -> client stream is still open until you call close() on the server side.
-            // The WebSocket protocol says that a separate close message must be sent in each direction to fully close the socket.
+            // 客户端关闭连接处理
             webSocketServer.addEventListener("close", () => {
-                // client send close, need close server
-                // if stream is cancel, skip controller.close
-                safeCloseWebSocket(webSocketServer);
-
                 if (readableStreamCancel) {
                     return;
                 }
 
+                log('WebSocket client closed connection');
+                // 先关闭流，再关闭WebSocket
                 controller.close();
+                safeCloseWebSocket(webSocketServer);
             });
+            
+            // WebSocket错误处理
             webSocketServer.addEventListener("error", (err) => {
-                log("webSocketServer has error");
-                controller.error(err);
+                log("webSocketServer has error: " + err.message);
+                if (!readableStreamCancel) {
+                    controller.error(err);
+                }
             });
-            // for ws 0rtt
+            
+            // 保留0-RTT支持
             const { earlyData, error } = base64ToArrayBuffer(earlyDataHeader);
 
             if (error) {
                 controller.error(error);
             } else if (earlyData) {
-                controller.enqueue(earlyData);
+                // 对于0-RTT数据，优先处理，确保快速响应
+                try {
+                    controller.enqueue(earlyData);
+                } catch (enqueueError) {
+                    console.error('Error enqueuing early data:', enqueueError);
+                    // 如果入队失败，将早期数据添加到缓冲区
+                    buffer.unshift(earlyData); // 使用unshift确保早期数据优先处理
+                }
             }
         },
         pull(controller) {
-            // if ws can stop read if stream is full, we can implement backpressure
-            // https://streams.spec.whatwg.org/#example-rs-push-backpressure
+            isPulling = true;
+            
+            // 更新高水位线
+            highWaterMark = controller.desiredSize || 16;
+            
+            // 如果缓冲区有数据，尝试入队
+            while (buffer.length > 0 && controller.desiredSize > 0) {
+                try {
+                    const message = buffer.shift();
+                    controller.enqueue(message);
+                } catch (error) {
+                    console.error('Error enqueuing from buffer:', error);
+                    break;
+                }
+            }
+            
+            isPulling = false;
         },
         cancel(reason) {
-            // 1. pipe WritableStream has error, this cancel will called, so ws handle server close into here
-            // 2. if readableStream is cancel, all controller.close/enqueue need skip,
-            // 3. but from testing controller.error still work even if readableStream is cancel
             if (readableStreamCancel) {
                 return;
             }
 
             log(`ReadableStream was canceled, due to ${reason}`);
             readableStreamCancel = true;
-            safeCloseWebSocket(webSocketServer);
+            buffer = []; // 清空缓冲区
+            safeCloseWebSocket(webSocketServer, 1000, `Stream canceled: ${reason}`);
         },
     });
 
@@ -210,10 +254,12 @@ function base64ToArrayBuffer(base64Str) {
     }
 }
 
-export function safeCloseWebSocket(socket) {
+export function safeCloseWebSocket(socket, code = 1000, reason = '') {
     try {
         if (socket.readyState === WS_READY_STATE_OPEN || socket.readyState === WS_READY_STATE_CLOSING) {
-            socket.close();
+            // WebSocket.close()最多接受123字节的原因描述
+            const safeReason = reason.length > 123 ? reason.substring(0, 120) + '...' : reason;
+            socket.close(code, safeReason);
         }
     } catch (error) {
         console.error('safeCloseWebSocket error', error);
