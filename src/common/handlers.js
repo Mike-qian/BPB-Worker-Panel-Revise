@@ -182,12 +182,16 @@ async function generateVlessNodes(env) {
     addresses.forEach((address, index) => {
         const ports = settings.ports || [443];
         ports.forEach(port => {
-            const host = isDomain(address) ? address : httpConfig.hostName;
+            // 判断是否为带方括号的IPv6地址
+            const isIpv6WithBrackets = address.startsWith('[') && address.endsWith(']');
+            // 对于带方括号的IPv6地址，提取纯IP地址用于isDomain判断
+            const cleanAddress = isIpv6WithBrackets ? address.slice(1, -1) : address;
+            const host = isDomain(cleanAddress) ? address : httpConfig.hostName;
             const sni = settings.customCdnSni || host;
             const wsPath = generateWsPath('vl');
 
-            // 构建vless链接
-            const vlessUrl = `vless://${globalConfig.userID}@${address.replace(/\[|\]/g, '')}:${port}?encryption=none&security=tls&sni=${sni}&type=ws&host=${host}&path=${encodeURIComponent(wsPath)}#BPB-Vless-${index + 1}`;
+            // 构建vless链接，保留IPv6地址的方括号
+            const vlessUrl = `vless://${globalConfig.userID}@${address}:${port}?encryption=none&security=tls&sni=${sni}&type=ws&host=${host}&path=${encodeURIComponent(wsPath)}#BPB-Vless-${index + 1}`;
             nodes.push(vlessUrl);
         });
     });
@@ -202,12 +206,16 @@ async function generateTrojanNodes(env) {
     addresses.forEach((address, index) => {
         const ports = settings.ports || [443];
         ports.forEach(port => {
-            const host = isDomain(address) ? address : httpConfig.hostName;
+            // 判断是否为带方括号的IPv6地址
+            const isIpv6WithBrackets = address.startsWith('[') && address.endsWith(']');
+            // 对于带方括号的IPv6地址，提取纯IP地址用于isDomain判断
+            const cleanAddress = isIpv6WithBrackets ? address.slice(1, -1) : address;
+            const host = isDomain(cleanAddress) ? address : httpConfig.hostName;
             const sni = settings.customCdnSni || host;
             const wsPath = generateWsPath('tr');
 
-            // 构建trojan链接
-            const trojanUrl = `trojan://${globalConfig.TrPass}@${address.replace(/\[|\]/g, '')}:${port}?security=tls&sni=${sni}&type=ws&host=${host}&path=${encodeURIComponent(wsPath)}#BPB-Trojan-${index + 1}`;
+            // 构建trojan链接，保留IPv6地址的方括号
+            const trojanUrl = `trojan://${globalConfig.TrPass}@${address}:${port}?security=tls&sni=${sni}&type=ws&host=${host}&path=${encodeURIComponent(wsPath)}#BPB-Trojan-${index + 1}`;
             nodes.push(trojanUrl);
         });
     });
