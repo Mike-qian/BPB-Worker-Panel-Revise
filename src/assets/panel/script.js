@@ -96,7 +96,6 @@ function initiateForm() {
 
     configForm.addEventListener('input', enableApplyButton);
     configForm.addEventListener('change', enableApplyButton);
-
     const textareas = document.querySelectorAll("textarea");
 
     textareas.forEach(textarea => {
@@ -105,6 +104,8 @@ function initiateForm() {
             this.style.height = `${this.scrollHeight}px`;
         });
     });
+
+    handleFragmentMode();
 }
 
 function hasFormDataChanged() {
@@ -378,6 +379,32 @@ function handlePortChange(event) {
     }
 }
 
+function handleFragmentMode() {
+    const fragmentMode = document.getElementById("fragmentMode").value;
+    const formDataObj = Object.fromEntries(globalThis.initialFormData.entries());
+    const inputs = [
+        "fragmentLengthMin",
+        "fragmentLengthMax",
+        "fragmentIntervalMin",
+        "fragmentIntervalMax"
+    ];
+
+    const configs = {
+        low: [100, 200, 1, 1],
+        medium: [50, 100, 1, 5],
+        high: [10, 20, 10, 20],
+        custom: inputs.map(id => formDataObj[id])
+    };
+
+    inputs.forEach((id, index) => {
+        const elm = document.getElementById(id);
+        elm.value = configs[fragmentMode][index];
+        fragmentMode !== "custom"
+            ? elm.setAttribute('readonly', 'true')
+            : elm.removeAttribute('readonly');
+    });
+}
+
 function resetSettings() {
     const confirmReset = confirm('⚠️ This will reset all panel settings.\n\n❓ Are you sure?');
     if (!confirmReset) return;
@@ -403,7 +430,7 @@ function resetSettings() {
             }
 
             initiatePanel(body);
-            alert('✅ Panel settings reset to default successfully!');
+            alert('✅ Panel settings reset to default successfully!\n💡 Please update your subscriptions.');
         })
         .catch(error => console.error("Reseting settings error:", error.message || error));
 }
@@ -443,7 +470,7 @@ function validateSettings() {
 
     const form = Object.fromEntries(formData.entries());
     const [modes, packets, delaysMin, delaysMax, counts] = fields;
-    
+
     modes.forEach((mode, index) => {
         xrayUdpNoises.push({
             type: mode,
@@ -526,7 +553,7 @@ function updateSettings(event, data) {
             }
 
             initiatePanel(form);
-            alert('✅ Settings applied successfully!');
+            alert('✅ Settings applied successfully!\n💡 Please update your subscriptions.');
         })
         .catch(error => console.error("Update settings error:", error.message || error))
         .finally(() => {
@@ -804,14 +831,13 @@ function validateXrayNoises(fields) {
     let submisionError = false;
 
     modes.forEach((mode, index) => {
-        if (delaysMin[index] > delaysMax[index]) {
+        if (Number(delaysMin[index]) > Number(delaysMax[index])) {
             alert('⛔ The minimum noise delay should be smaller or equal to maximum!');
             submisionError = true;
             return;
         }
 
         switch (mode) {
-
             case 'base64': {
                 if (!base64Regex.test(packets[index])) {
                     alert('⛔ The Base64 noise packet is not a valid base64 value!');
