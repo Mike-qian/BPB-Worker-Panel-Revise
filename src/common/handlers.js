@@ -134,90 +134,13 @@ export async function handleSubscriptions(request, env) {
                 default:
                     break;
             }
-            
+        
         case `/sub/legacy/${subPath}`:
-            return await generateLegacySubscription(request, env);
+            return await generateLegacyLinks(request, env);
 
         default:
             return await fallback(request);
     }
-}
-
-async function generateLegacySubscription(request, env) {
-    const dataset = await getDataset(request, env);
-    const { settings } = dataset;
-    const { enableVless, enableTrojan } = settings;
-    const subscriptionLinks = [];
-    
-    // 生成VLESS链接
-    if (enableVless) {
-        const vlessConfig = await getXrCustomConfigs(env, false);
-        if (vlessConfig && vlessConfig.headers.get('Content-Type') === 'text/plain') {
-            const vlessContent = await vlessConfig.text();
-            try {
-                // 尝试解析为JSON，提取VLESS链接
-                const config = JSON.parse(vlessContent);
-                if (config.outbounds) {
-                    config.outbounds.forEach(outbound => {
-                        if (outbound.protocol === 'vless') {
-                            // 构建VLESS链接
-                            const { server, port, uuid, flow, encryption = 'none' } = outbound.settings.vnext[0];
-                            const wsPath = outbound.streamSettings.wsSettings.path;
-                            const vlessLink = `vless://${uuid}@${server}:${port}?encryption=${encryption}&flow=${flow || ''}&type=ws&path=${encodeURIComponent(wsPath)}#BPB-VLESS`;
-                            subscriptionLinks.push(vlessLink);
-                        }
-                    });
-                }
-            } catch (e) {
-                // 如果不是JSON格式，尝试直接从文本中提取VLESS链接
-                const vlessLinks = vlessContent.match(/vless:\/\/[^\s]+/g) || [];
-                subscriptionLinks.push(...vlessLinks);
-            }
-        }
-    }
-    
-    // 生成Trojan链接
-    if (enableTrojan) {
-        const trojanConfig = await getSbCustomConfig(env, false);
-        if (trojanConfig && trojanConfig.headers.get('Content-Type') === 'text/plain') {
-            const trojanContent = await trojanConfig.text();
-            try {
-                // 尝试解析为JSON，提取Trojan链接
-                const config = JSON.parse(trojanContent);
-                if (config.outbounds) {
-                    config.outbounds.forEach(outbound => {
-                        if (outbound.protocol === 'trojan') {
-                            // 构建Trojan链接
-                            const { server, port, password } = outbound.settings.servers[0];
-                            const wsPath = outbound.streamSettings.wsSettings.path;
-                            const trojanLink = `trojan://${password}@${server}:${port}?type=ws&path=${encodeURIComponent(wsPath)}#BPB-Trojan`;
-                            subscriptionLinks.push(trojanLink);
-                        }
-                    });
-                }
-            } catch (e) {
-                // 如果不是JSON格式，尝试直接从文本中提取Trojan链接
-                const trojanLinks = trojanContent.match(/trojan:\/\/[^\s]+/g) || [];
-                subscriptionLinks.push(...trojanLinks);
-            }
-        }
-    }
-    
-    // 将链接用换行符合并
-    const mergedContent = subscriptionLinks.join('\n');
-    
-    // 进行base64加密
-    const encoder = new TextEncoder();
-    const data = encoder.encode(mergedContent);
-    const base64Encoded = btoa(String.fromCharCode.apply(null, Array.from(data)));
-    
-    return new Response(base64Encoded, {
-        headers: {
-            'Content-Type': 'text/plain',
-            'Content-Disposition': 'attachment; filename=legacy-sub.txt',
-            'Cache-Control': 'no-store'
-        }
-    });
 }
 
 async function updateSettings(request, env) {
@@ -449,4 +372,66 @@ function hexToString(hex) {
 export function isValidUUID(uuid) {
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[4][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     return uuidRegex.test(uuid);
+}
+
+async function generateLegacyLinks(request, env) {
+    const { userID, TrPass } = globalConfig;
+    const dataset = await getDataset(request, env);
+    settings = dataset.settings;
+    const { hostName } = httpConfig;
+    
+    const links = [];
+    
+    // 导入需要的工具函数
+    const { getConfigAddresses, generateWsPath, randomUpperCase, isHttps } = await import('#configs/utils');
+    
+    // 获取配置地址
+    const addresses = await getConfigAddresses(false);
+    const ports = settings.ports.filter(port => true); // 获取所有端口
+    
+    // 生成VLESS链接
+    if (settings.VLConfigs) {
+        for (const port of ports) {
+            for (const addr of addresses) {
+                const isCustomAddr = settings.customCdnAddrs.includes(addr);
+                const sni = isCustomAddr ? settings.customCdnSni : randomUpperCase(hostName);
+                const host = isCustomAddr ? settings.customCdnHost : hostName;
+                const path = generateWsPath('vl');
+                const tls = isHttps(port) ? 'tls' : 'none';
+                
+                // 构建VLESS链接
+                const vlessLink = `vless://${userID}@${addr.replace(/\[|\]/g, '')}:${port}?encryption=none&security=${tls}&sni=${encodeURIComponent(sni)}&host=${encodeURIComponent(host)}&path=${encodeURIComponent(path)}&type=ws#BPB-VLESS-${addr.split(':')[0]}-${port}`;
+                links.push(vlessLink);
+            }
+        }
+    }
+    
+    // 生成Trojan链接
+    if (settings.TRConfigs) {
+        for (const port of ports) {
+            for (const addr of addresses) {
+                const isCustomAddr = settings.customCdnAddrs.includes(addr);
+                const sni = isCustomAddr ? settings.customCdnSni : randomUpperCase(hostName);
+                const host = isCustomAddr ? settings.customCdnHost : hostName;
+                const path = generateWsPath('tr');
+                const tls = isHttps(port) ? 'tls' : 'none';
+                
+                // 构建Trojan链接
+                const trojanLink = `trojan://${TrPass}@${addr.replace(/\[|\]/g, '')}:${port}?security=${tls}&sni=${encodeURIComponent(sni)}&host=${encodeURIComponent(host)}&path=${encodeURIComponent(path)}&type=ws#BPB-Trojan-${addr.split(':')[0]}-${port}`;
+                links.push(trojanLink);
+            }
+        }
+    }
+    
+    // 将所有链接以换行方式合并
+    const mergedLinks = links.join('\n');
+    
+    return new Response(mergedLinks, {
+        status: 200,
+        headers: {
+            'Content-Type': 'text/plain;charset=utf-8',
+            'Cache-Control': 'no-store',
+            'CDN-Cache-Control': 'no-store'
+        }
+    });
 }
