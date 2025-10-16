@@ -135,9 +135,59 @@ export async function handleSubscriptions(request, env) {
                     break;
             }
 
+        case `/sub/legacy/${subPath}`:
+            return await generateLegacySubscriptions(request, env);
+
         default:
             return await fallback(request);
     }
+}
+
+async function generateLegacySubscriptions(request, env) {
+    const dataset = await getDataset(request, env);
+    const { settings } = dataset;
+    const { vlessConfig, trojanConfig, generateVless, generateTrojan } = settings;
+    const { urlOrigin } = httpConfig;
+    const host = new URL(urlOrigin).hostname;
+    const links = [];
+
+    // Generate VLESS links if enabled
+    if (generateVless && vlessConfig) {
+        const { uuid, flow, security, path, port } = vlessConfig;
+        const vlessPort = port || 443;
+        const vlessFlow = flow || '';
+        const vlessSecurity = security || 'none';
+        const vlessPath = path || '';
+        
+        // Base64 encode the XTLS flow if provided
+        const encodedFlow = vlessFlow ? `flow=${encodeURIComponent(vlessFlow)}&` : '';
+        
+        // Construct VLESS URL
+        const vlessLink = `vless://${uuid}@${host}:${vlessPort}?${encodedFlow}security=${vlessSecurity}&encryption=none&type=ws&path=${encodeURIComponent(vlessPath)}#${encodeURIComponent('BPB-VLESS')}`;
+        links.push(vlessLink);
+    }
+
+    // Generate Trojan links if enabled
+    if (generateTrojan && trojanConfig) {
+        const { password, path, port } = trojanConfig;
+        const trojanPort = port || 443;
+        const trojanPath = path || '';
+        
+        // Construct Trojan URL
+        const trojanLink = `trojan://${password}@${host}:${trojanPort}?security=tls&encryption=none&type=ws&path=${encodeURIComponent(trojanPath)}#${encodeURIComponent('BPB-Trojan')}`;
+        links.push(trojanLink);
+    }
+
+    // Combine all links with newlines
+    const subscriptionContent = links.join('\n');
+    
+    // Return as text file
+    return new Response(subscriptionContent, {
+        headers: {
+            'Content-Type': 'text/plain',
+            'Content-Disposition': 'attachment; filename=legacy-sub.txt',
+        }
+    });
 }
 
 async function updateSettings(request, env) {
