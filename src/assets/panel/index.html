@@ -549,6 +549,44 @@
         <h2><span class="material-symbols-rounded">share</span> Subscriptions</h2>
         <details>
             <summary>
+                <h3>Legacy
+                    <a href="https://bia-pain-bache.github.io/BPB-Worker-Panel/usage/legacy/" target="_blank"
+                        title="Help">
+                        <span class="material-symbols-rounded">info</span>
+                    </a>
+                </h3>
+            </summary>
+            <div class="table-container">
+                <table id="legacy-sub-table">
+                    <tr>
+                        <td>
+                            <div>
+                                <span class="material-symbols-rounded">verified</span>
+                                <span>Universal (vless:///trojan://)</span>
+                            </div>
+                            <div>
+                                <span class="material-symbols-rounded">verified</span>
+                                <span>Compatible with most clients</span>
+                            </div>
+                        </td>
+                        <td>
+                            <button title="Display QR code"
+                                onclick="openQR('legacy', 'text', 'Legacy', 'Legacy Subscription')">
+                                <span class="material-symbols-rounded">qr_code</span>
+                            </button>
+                            <button title="Copy subscription URL" onclick="subURL('legacy', 'text', 'Legacy')">
+                                <span class="material-symbols-rounded">content_copy</span>
+                            </button>
+                            <button title="Download config" onclick="dlURL('legacy', 'text')">
+                                <span class="material-symbols-rounded">download</span>
+                            </button>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        </details>
+        <details>
+            <summary>
                 <h3>Normal
                     <a href="https://bia-pain-bache.github.io/BPB-Worker-Panel/usage/normal/" target="_blank"
                         title="Help">
