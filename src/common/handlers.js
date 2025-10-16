@@ -134,58 +134,88 @@ export async function handleSubscriptions(request, env) {
                 default:
                     break;
             }
-
+            
         case `/sub/legacy/${subPath}`:
-            return await generateLegacySubscriptions(request, env);
+            return await generateLegacySubscription(request, env);
 
         default:
             return await fallback(request);
     }
 }
 
-async function generateLegacySubscriptions(request, env) {
+async function generateLegacySubscription(request, env) {
     const dataset = await getDataset(request, env);
     const { settings } = dataset;
-    const { vlessConfig, trojanConfig, generateVless, generateTrojan } = settings;
-    const { urlOrigin } = httpConfig;
-    const host = new URL(urlOrigin).hostname;
-    const links = [];
-
-    // Generate VLESS links if enabled
-    if (generateVless && vlessConfig) {
-        const { uuid, flow, security, path, port } = vlessConfig;
-        const vlessPort = port || 443;
-        const vlessFlow = flow || '';
-        const vlessSecurity = security || 'none';
-        const vlessPath = path || '';
-        
-        // Base64 encode the XTLS flow if provided
-        const encodedFlow = vlessFlow ? `flow=${encodeURIComponent(vlessFlow)}&` : '';
-        
-        // Construct VLESS URL
-        const vlessLink = `vless://${uuid}@${host}:${vlessPort}?${encodedFlow}security=${vlessSecurity}&encryption=none&type=ws&path=${encodeURIComponent(vlessPath)}#${encodeURIComponent('BPB-VLESS')}`;
-        links.push(vlessLink);
-    }
-
-    // Generate Trojan links if enabled
-    if (generateTrojan && trojanConfig) {
-        const { password, path, port } = trojanConfig;
-        const trojanPort = port || 443;
-        const trojanPath = path || '';
-        
-        // Construct Trojan URL
-        const trojanLink = `trojan://${password}@${host}:${trojanPort}?security=tls&encryption=none&type=ws&path=${encodeURIComponent(trojanPath)}#${encodeURIComponent('BPB-Trojan')}`;
-        links.push(trojanLink);
-    }
-
-    // Combine all links with newlines
-    const subscriptionContent = links.join('\n');
+    const { enableVless, enableTrojan } = settings;
+    const subscriptionLinks = [];
     
-    // Return as text file
-    return new Response(subscriptionContent, {
+    // 生成VLESS链接
+    if (enableVless) {
+        const vlessConfig = await getXrCustomConfigs(env, false);
+        if (vlessConfig && vlessConfig.headers.get('Content-Type') === 'text/plain') {
+            const vlessContent = await vlessConfig.text();
+            try {
+                // 尝试解析为JSON，提取VLESS链接
+                const config = JSON.parse(vlessContent);
+                if (config.outbounds) {
+                    config.outbounds.forEach(outbound => {
+                        if (outbound.protocol === 'vless') {
+                            // 构建VLESS链接
+                            const { server, port, uuid, flow, encryption = 'none' } = outbound.settings.vnext[0];
+                            const wsPath = outbound.streamSettings.wsSettings.path;
+                            const vlessLink = `vless://${uuid}@${server}:${port}?encryption=${encryption}&flow=${flow || ''}&type=ws&path=${encodeURIComponent(wsPath)}#BPB-VLESS`;
+                            subscriptionLinks.push(vlessLink);
+                        }
+                    });
+                }
+            } catch (e) {
+                // 如果不是JSON格式，尝试直接从文本中提取VLESS链接
+                const vlessLinks = vlessContent.match(/vless:\/\/[^\s]+/g) || [];
+                subscriptionLinks.push(...vlessLinks);
+            }
+        }
+    }
+    
+    // 生成Trojan链接
+    if (enableTrojan) {
+        const trojanConfig = await getSbCustomConfig(env, false);
+        if (trojanConfig && trojanConfig.headers.get('Content-Type') === 'text/plain') {
+            const trojanContent = await trojanConfig.text();
+            try {
+                // 尝试解析为JSON，提取Trojan链接
+                const config = JSON.parse(trojanContent);
+                if (config.outbounds) {
+                    config.outbounds.forEach(outbound => {
+                        if (outbound.protocol === 'trojan') {
+                            // 构建Trojan链接
+                            const { server, port, password } = outbound.settings.servers[0];
+                            const wsPath = outbound.streamSettings.wsSettings.path;
+                            const trojanLink = `trojan://${password}@${server}:${port}?type=ws&path=${encodeURIComponent(wsPath)}#BPB-Trojan`;
+                            subscriptionLinks.push(trojanLink);
+                        }
+                    });
+                }
+            } catch (e) {
+                // 如果不是JSON格式，尝试直接从文本中提取Trojan链接
+                const trojanLinks = trojanContent.match(/trojan:\/\/[^\s]+/g) || [];
+                subscriptionLinks.push(...trojanLinks);
+            }
+        }
+    }
+    
+    // 将链接用换行符合并
+    const mergedContent = subscriptionLinks.join('\n');
+    
+    // 进行base64加密
+    const encoder = new TextEncoder();
+    const data = encoder.encode(mergedContent);
+    const base64Encoded = btoa(String.fromCharCode.apply(null, Array.from(data)));
+    
+    return new Response(base64Encoded, {
         headers: {
             'Content-Type': 'text/plain',
             'Content-Disposition': 'attachment; filename=legacy-sub.txt',
+            'Cache-Control': 'no-store'
         }
     });
 }
