@@ -383,7 +383,7 @@ async function generateLegacyLinks(request, env) {
     const links = [];
     
     // 导入需要的工具函数
-    const { getConfigAddresses, generateWsPath, randomUpperCase, isHttps } = await import('#configs/utils');
+    const { getConfigAddresses, generateWsPath, randomUpperCase, isHttps, isIPv6 } = await import('#configs/utils');
     
     // 获取配置地址
     const addresses = await getConfigAddresses(false);
@@ -399,8 +399,17 @@ async function generateLegacyLinks(request, env) {
                 const path = generateWsPath('vl');
                 const tls = isHttps(port) ? 'tls' : 'none';
                 
+                // 正确处理IPv6地址格式
+                let formattedAddr = addr;
+                // 如果是IPv6地址但没有方括号，则添加方括号
+                if (isIPv6(addr) && !addr.startsWith('[')) {
+                    formattedAddr = `[${addr}]`;
+                }
+                // 提取地址用于备注，移除方括号
+                const addrForRemark = addr.replace(/\[|\]/g, '').split(':')[0];
+                
                 // 构建VLESS链接
-                const vlessLink = `vless://${userID}@${addr.replace(/\[|\]/g, '')}:${port}?encryption=none&security=${tls}&sni=${encodeURIComponent(sni)}&host=${encodeURIComponent(host)}&path=${encodeURIComponent(path)}&type=ws#BPB-VLESS-${addr.split(':')[0]}-${port}`;
+                const vlessLink = `vless://${userID}@${formattedAddr}:${port}?encryption=none&security=${tls}&sni=${encodeURIComponent(sni)}&host=${encodeURIComponent(host)}&path=${encodeURIComponent(path)}&type=ws#BPB-VLESS-${addrForRemark}-${port}`;
                 links.push(vlessLink);
             }
         }
@@ -416,8 +425,17 @@ async function generateLegacyLinks(request, env) {
                 const path = generateWsPath('tr');
                 const tls = isHttps(port) ? 'tls' : 'none';
                 
+                // 正确处理IPv6地址格式
+                let formattedAddr = addr;
+                // 如果是IPv6地址但没有方括号，则添加方括号
+                if (isIPv6(addr) && !addr.startsWith('[')) {
+                    formattedAddr = `[${addr}]`;
+                }
+                // 提取地址用于备注，移除方括号
+                const addrForRemark = addr.replace(/\[|\]/g, '').split(':')[0];
+                
                 // 构建Trojan链接
-                const trojanLink = `trojan://${TrPass}@${addr.replace(/\[|\]/g, '')}:${port}?security=${tls}&sni=${encodeURIComponent(sni)}&host=${encodeURIComponent(host)}&path=${encodeURIComponent(path)}&type=ws#BPB-Trojan-${addr.split(':')[0]}-${port}`;
+                const trojanLink = `trojan://${TrPass}@${formattedAddr}:${port}?security=${tls}&sni=${encodeURIComponent(sni)}&host=${encodeURIComponent(host)}&path=${encodeURIComponent(path)}&type=ws#BPB-Trojan-${addrForRemark}-${port}`;
                 links.push(trojanLink);
             }
         }
